@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Caixinha Desafio 2026</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      const API_URL = "./api.php";
+      const meses = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+      ];
+      const valoresPorMes = [
+        160, 150, 145, 140, 135, 125, 120, 115, 110, 105, 100, 95,
+      ];
+
+      const apiCall = async (method, data = null, auth = null) => {
+        const options = {
+          method,
+          headers: { "Content-Type": "application/json" },
+        };
+        if (auth)
+          options.headers["Authorization"] =
+            "Basic " + btoa(auth.user + ":" + auth.pass);
+        if (data) options.body = JSON.stringify(data);
+
+        try {
+          const response = await fetch(API_URL, options);
+          return await response.json();
+        } catch (err) {
+          console.error("Erro na API:", err);
+          return { success: false };
+        }
+      };
+
+      const TelaLogin = ({ onLogin }) => {
+        const [u, setU] = useState("");
+        const [p, setP] = useState("");
+        return (
+          <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+            <form
+              className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await apiCall("GET", null, { user: u, pass: p });
+                if (res.success) onLogin(u, p);
+                else alert("Usuário ou senha incorretos");
+              }}
+            >
+              <h1 className="text-2xl font-bold mb-6 text-center text-indigo-900">
+                🔐 Caixinha 2026
+              </h1>
+              <input
+                type="text"
+                placeholder="Usuário"
+                className="w-full p-3 border rounded mb-4"
+                onChange={(e) => setU(e.target.value)}
+                required
+              />
+              <input
+                type="password"
+                placeholder="Senha"
+                className="w-full p-3 border rounded mb-6"
+                onChange={(e) => setP(e.target.value)}
+                required
+              />
+              <button className="w-full bg-indigo-600 text-white p-3 rounded font-bold hover:bg-indigo-700">
+                Entrar
+              </button>
+            </form>
+          </div>
+        );
+      };
+
+      const Caixinha2026 = () => {
+        const [autenticado, setAutenticado] = useState(false);
+        const [credenciais, setCredenciais] = useState({ user: "", pass: "" });
+        const [participantes, setParticipantes] = useState([]);
+        const [editando, setEditando] = useState(null);
+        const [editForm, setEditForm] = useState({
+          nome: "",
+          contato: "",
+          cotas: 1,
+        });
+
+        useEffect(() => {
+          const u = sessionStorage.getItem("c_u");
+          const p = sessionStorage.getItem("c_p");
+          if (u && p) {
+            setAutenticado(true);
+            setCredenciais({ user: u, pass: p });
+          }
+        }, []);
+
+        useEffect(() => {
+          if (autenticado) {
+            carregar();
+            setInterval(carregar, 15000);
+          }
+        }, [autenticado]);
+
+        const carregar = async () => {
+          const res = await apiCall("GET");
+          if (res.success) {
+            const normalizados = res.data.map((p) => ({
+              ...p,
+              pagamentos: p.pagamentos.map((pag) => {
+                if (typeof pag === "boolean") return { pago: pag, data: null };
+                return pag || { pago: false, data: null };
+              }),
+            }));
+            setParticipantes(normalizados);
+          }
+        };
+
+        const handleLogin = (u, p) => {
+          sessionStorage.setItem("c_u", u);
+          sessionStorage.setItem("c_p", p);
+          setCredenciais({ user: u, pass: p });
+          setAutenticado(true);
+        };
+
+        const togglePagamento = async (p, idx) => {
+          const novos = [...p.pagamentos];
+          const statusAtual = novos[idx].pago;
+          novos[idx] = {
+            pago: !statusAtual,
+            data: !statusAtual ? new Date().toLocaleDateString("pt-BR") : null,
+          };
+          await apiCall("PUT", { ...p, pagamentos: novos }, credenciais);
+          carregar();
+        };
+
+        const adicionar = async () => {
+          const pags = Array(12)
+            .fill(null)
+            .map(() => ({ pago: false, data: null }));
+          await apiCall(
+            "POST",
+            { nome: "Novo", contato: "", cotas: 1, pagamentos: pags },
+            credenciais,
+          );
+          carregar();
+        };
+
+        const mesAtual = new Date().getMonth();
+        let totalPagoGeral = 0;
+        let totalEsperadoGeral = 0;
+
+        participantes.forEach((p) => {
+          p.pagamentos.forEach((pag, i) => {
+            if (pag.pago) totalPagoGeral += valoresPorMes[i] * p.cotas;
+          });
+          totalEsperadoGeral += valoresPorMes
+            .slice(0, mesAtual + 1)
+            .reduce((a, b) => a + b * p.cotas, 0);
+        });
+
+        if (!autenticado) return <TelaLogin onLogin={handleLogin} />;
+
+        return (
+          <div className="min-h-screen bg-blue-50 p-4">
+            <div className="max-w-7xl mx-auto">
+              {/* DASHBOARD */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
+                  <p className="text-xs font-bold text-gray-500 uppercase">
+                    💰 Total Pago
+                  </p>
+                  <p className="text-2xl font-bold text-green-600">
+                    R$ {totalPagoGeral.toLocaleString("pt-BR")}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
+                  <p className="text-xs font-bold text-gray-500 uppercase">
+                    📅 Esperado até {meses[mesAtual]}
+                  </p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    R$ {totalEsperadoGeral.toLocaleString("pt-BR")}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow border-l-4 border-orange-500">
+                  <p className="text-xs font-bold text-gray-500 uppercase">
+                    ⚠️ Pendências
+                  </p>
+                  <p className="text-2xl font-bold text-orange-600">
+                    R${" "}
+                    {(totalEsperadoGeral - totalPagoGeral).toLocaleString(
+                      "pt-BR",
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-xl overflow-hidden">
+                <div className="p-6 border-b flex justify-between items-center flex-wrap gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-indigo-900">
+                      📌 Caixinha Desafio 2026
+                    </h1>
+                    <p className="text-sm text-gray-500">
+                      R$ 1.500 + Rendimentos por cota
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        sessionStorage.clear();
+                        window.location.reload();
+                      }}
+                      className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                    >
+                      Sair
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-indigo-600 text-white">
+                      <tr>
+                        <th className="p-4 text-left">Nome</th>
+                        <th className="p-4 text-center">Cotas</th>
+                        {meses.map((m, i) => (
+                          <th
+                            key={m}
+                            className={`p-2 text-center border-l border-indigo-500 ${i === mesAtual ? "bg-indigo-800" : ""}`}
+                          >
+                            {m}{" "}
+                            <div className="text-[10px] font-normal">
+                              R$ {valoresPorMes[i]}
+                            </div>
+                          </th>
+                        ))}
+                        <th className="p-4 text-center border-l border-indigo-500">
+                          Total
+                        </th>
+                        <th className="p-4 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {participantes.map((p) => {
+                        let somaP = 0;
+                        return (
+                          <tr key={p.id} className="hover:bg-gray-50">
+                            <td className="p-4 font-medium">
+                              {editando === p.id ? (
+                                <input
+                                  className="border p-1 w-full"
+                                  value={editForm.nome}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      nome: e.target.value,
+                                    })
+                                  }
+                                  onBlur={async () => {
+                                    await apiCall(
+                                      "PUT",
+                                      { ...p, ...editForm },
+                                      credenciais,
+                                    );
+                                    setEditando(null);
+                                    carregar();
+                                  }}
+                                />
+                              ) : (
+                                <span
+                                  onClick={() => {
+                                    setEditando(p.id);
+                                    setEditForm(p);
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  {p.nome || "(Clique para editar)"}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center">
+                              {editando === p.id ? (
+                                <input
+                                  type="number"
+                                  className="border p-1 w-12 text-center"
+                                  value={editForm.cotas}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      cotas: e.target.value,
+                                    })
+                                  }
+                                />
+                              ) : (
+                                <span className="font-bold text-indigo-600">
+                                  {p.cotas}
+                                </span>
+                              )}
+                            </td>
+                            {meses.map((m, i) => {
+                              const pag = p.pagamentos[i];
+                              if (pag.pago) somaP += valoresPorMes[i] * p.cotas;
+                              return (
+                                <td
+                                  key={i}
+                                  onClick={() => togglePagamento(p, i)}
+                                  className={`p-2 text-center cursor-pointer border-l ${pag.pago ? "bg-green-50" : i <= mesAtual ? "bg-red-50" : ""}`}
+                                >
+                                  <div className="text-lg">
+                                    {pag.pago ? "✓" : "✗"}
+                                  </div>
+                                  <div className="text-[10px] font-bold">
+                                    R$ {valoresPorMes[i] * p.cotas}
+                                  </div>
+                                  {pag.data && (
+                                    <div className="text-[9px] text-green-700">
+                                      {pag.data}
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="p-4 text-center font-bold text-green-700 bg-gray-50">
+                              R$ {somaP}
+                            </td>
+                            <td className="p-4 text-center">
+                              <button
+                                onClick={async () => {
+                                  if (confirm("Excluir?")) {
+                                    await apiCall(
+                                      "DELETE",
+                                      { id: p.id },
+                                      credenciais,
+                                    );
+                                    carregar();
+                                  }
+                                }}
+                                className="text-red-500"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="p-4 bg-gray-50">
+                  <button
+                    onClick={adicionar}
+                    className="bg-indigo-600 text-white px-6 py-2 rounded font-bold hover:bg-indigo-700"
+                  >
+                    + Adicionar Participante
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      ReactDOM.render(<Caixinha2026 />, document.getElementById("root"));
+    </script>
+  </body>
+</html>
